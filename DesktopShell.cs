@@ -11,7 +11,7 @@ internal static class DesktopShell
     private const int Visible = 0x10000000;
     private const int Topmost = 0x00000008;
     private const uint PreviousWindow = 3;
-    private const uint PositionOnlyZOrder = 0x0001 | 0x0002 | 0x0010 | 0x0200;
+    private const uint PositionOnlyZOrder = 0x0001 | 0x0002 | 0x0010;
 
     public static DesktopSurface FindSurface()
     {
@@ -66,6 +66,11 @@ internal static class DesktopShell
         }
 
         nint aboveDesktop = GetWindow(desktopHost, PreviousWindow);
+        // Explorer and the composition engine can have hidden windows between visible layers.
+        while (aboveDesktop != 0 && !IsWindowVisible(aboveDesktop))
+        {
+            aboveDesktop = GetWindow(aboveDesktop, PreviousWindow);
+        }
         if (aboveDesktop == window)
         {
             return;
@@ -125,6 +130,10 @@ internal static class DesktopShell
 
     [DllImport("user32.dll")]
     private static extern nint GetWindow(nint window, uint command);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool IsWindowVisible(nint window);
 
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]

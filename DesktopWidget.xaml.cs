@@ -7,6 +7,8 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 
 namespace DesktopCarousel;
@@ -22,6 +24,7 @@ public partial class DesktopWidget : Window
     private readonly DispatcherTimer _motionTimer = new(DispatcherPriority.Render) { Interval = TimeSpan.FromMilliseconds(16) };
     private readonly CancellationTokenSource _lifetime = new();
     private readonly List<ShortcutTile> _tiles = [];
+    private readonly WallpaperAppearance _wallpaperAppearance = new();
     private List<DesktopShortcut> _shortcuts = [];
     private Rect _workArea;
     private nint _handle;
@@ -31,8 +34,11 @@ public partial class DesktopWidget : Window
     private bool _paused;
     private bool _hideDesktopIcons = true;
     private bool _acquiringIconLease;
+    private bool _readingWallpaper;
     private long _retryIconLeaseAfter;
+    private long _nextWallpaperCheck;
     private DesktopIconLease? _iconLease;
+    private WallpaperStyle? _wallpaperStyle;
     private double _position;
     private double _wheelDistance;
     private long _lastFrame;
@@ -43,6 +49,7 @@ public partial class DesktopWidget : Window
     {
         _folders = folders;
         InitializeComponent();
+        ApplyWallpaperStyle(WallpaperStyle.Default);
         PositionWidget();
         _desktopTimer.Tick += RefreshDesktopLayer;
         _reloadTimer.Tick += ReloadShortcuts;
@@ -108,6 +115,7 @@ public partial class DesktopWidget : Window
         DesktopShell.PlaceOnDesktop(_handle, surface.Host);
         _covered = DesktopShell.ForegroundCoversWidget(_handle, surface.Host);
         UpdateRenderLoop();
+        RefreshWallpaperStyle();
 
         bool wantHidden = _hideDesktopIcons && _shortcuts.Count > 0;
         if (_iconLease is { } current && (!wantHidden || current.Surface != surface || !current.RestorerRunning))
@@ -149,6 +157,72 @@ public partial class DesktopWidget : Window
         {
             _acquiringIconLease = false;
         }
+    }
+
+    private async void RefreshWallpaperStyle()
+    {
+        if (_readingWallpaper || _covered || ActualWidth <= 0 || Environment.TickCount64 < _nextWallpaperCheck)
+        {
+            return;
+        }
+
+        _readingWallpaper = true;
+        _nextWallpaperCheck = Environment.TickCount64 + 4_000;
+        try
+        {
+            var start = PointToScreen(new Point(ActualWidth * 0.09, 16));
+            var end = PointToScreen(new Point(ActualWidth * 0.91, ActualHeight - 18));
+            var style = await Task.Run(() => _wallpaperAppearance.Read(new Rect(start, end)));
+            if (!_closed)
+            {
+                ApplyWallpaperStyle(style);
+            }
+        }
+        finally
+        {
+            _readingWallpaper = false;
+        }
+    }
+
+    private void ApplyWallpaperStyle(WallpaperStyle style)
+    {
+        if (_wallpaperStyle == style)
+        {
+            return;
+        }
+
+        _wallpaperStyle = style;
+        Resources["IconShadow"] = CreateIconShadow(style.IconShadow);
+        Resources["CaptionForeground"] = new SolidColorBrush(style.Foreground);
+        Resources["CaptionBackground"] = new SolidColorBrush(style.CaptionBackground);
+        Resources["CaptionShadowColor"] = style.CaptionShadow;
+    }
+
+    private static BitmapSource CreateIconShadow(Color color)
+    {
+        const int width = 108;
+        const int height = 96;
+        const int stride = width * 4;
+        var pixels = new byte[height * stride];
+        for (int y = 0; y < height; y++)
+        {
+            double vertical = (y + 0.5 - height * 0.56) / (height * 0.44);
+            for (int x = 0; x < width; x++)
+            {
+                double horizontal = (x + 0.5 - width / 2.0) / (width / 2.0);
+                double fade = Math.Clamp(1 - Math.Sqrt(horizontal * horizontal + vertical * vertical), 0, 1);
+                int alpha = (int)(color.A * fade * fade * (3 - 2 * fade));
+                int index = y * stride + x * 4;
+                pixels[index] = (byte)(color.B * alpha / 255);
+                pixels[index + 1] = (byte)(color.G * alpha / 255);
+                pixels[index + 2] = (byte)(color.R * alpha / 255);
+                pixels[index + 3] = (byte)alpha;
+            }
+        }
+
+        var shadow = BitmapSource.Create(width, height, 144, 144, PixelFormats.Pbgra32, null, pixels, stride);
+        shadow.Freeze();
+        return shadow;
     }
 
     private void StartWatching(object sender, RoutedEventArgs args)
@@ -235,13 +309,15 @@ public partial class DesktopWidget : Window
         var style = (Style)FindResource("ShortcutTile");
         foreach (var shortcut in _shortcuts)
         {
-            var scale = new ScaleTransform(1, 1, 56, 34);
+            var scale = new ScaleTransform(1, 1, 56, 62);
             var offset = new TranslateTransform();
             var transform = new TransformGroup();
             transform.Children.Add(scale);
             transform.Children.Add(offset);
             var button = new Button { DataContext = shortcut, Style = style, RenderTransform = transform };
             button.Click += (_, _) => OpenShortcut(shortcut);
+            button.MouseEnter += (_, _) => SetShortcutHover(button, true);
+            button.MouseLeave += (_, _) => SetShortcutHover(button, false);
             _tiles.Add(new ShortcutTile(button, scale, offset));
             IconArc.Children.Add(button);
         }
@@ -250,6 +326,41 @@ public partial class DesktopWidget : Window
         Status.Visibility = _shortcuts.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         LayoutArc();
         RefreshDesktopLayer(this, EventArgs.Empty);
+    }
+
+    private static void SetShortcutHover(Button button, bool hovered)
+    {
+        var scale = (ScaleTransform)button.Template.FindName("HoverScale", button);
+        var lift = (TranslateTransform)button.Template.FindName("HoverLift", button);
+        var caption = (Border)button.Template.FindName("Caption", button);
+        var duration = SystemParameters.ClientAreaAnimation
+            ? TimeSpan.FromMilliseconds(hovered ? 150 : 120)
+            : TimeSpan.Zero;
+        double size = hovered ? 1.1 : 1;
+        TransitionHover(scale, ScaleTransform.ScaleXProperty, size, duration);
+        TransitionHover(scale, ScaleTransform.ScaleYProperty, size, duration);
+        TransitionHover(lift, TranslateTransform.YProperty, hovered ? -4 : 0, duration);
+
+        caption.BeginAnimation(VisibilityProperty, hovered
+            ? new ObjectAnimationUsingKeyFrames
+            {
+                KeyFrames = { new DiscreteObjectKeyFrame(Visibility.Visible, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(185))) },
+            }
+            : null);
+    }
+
+    private static void TransitionHover(Animatable transform, DependencyProperty property, double target, TimeSpan duration)
+    {
+        var from = (double)transform.GetValue(property);
+        transform.BeginAnimation(property, null);
+        transform.SetValue(property, target);
+        if (duration > TimeSpan.Zero && from != target)
+        {
+            transform.BeginAnimation(property, new DoubleAnimation(from, target, duration, FillBehavior.Stop)
+            {
+                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut },
+            });
+        }
     }
 
     private bool AutoMotion => !_paused && !IsMouseOver && _tiles.Count > 1 && SystemParameters.ClientAreaAnimation;
@@ -326,7 +437,6 @@ public partial class DesktopWidget : Window
         double sideSlots = Math.Min(3.7, halfWidth / 86);
         double edge = Math.Min(_tiles.Count / 2.0, sideSlots);
         double radius = halfWidth / Math.Sin(sideSlots * 0.30);
-        int centered = (int)Math.Floor(_position + 0.5) % _tiles.Count;
         for (int index = 0; index < _tiles.Count; index++)
         {
             var tile = _tiles[index];
@@ -349,7 +459,6 @@ public partial class DesktopWidget : Window
             tile.Scale.ScaleX = tile.Scale.ScaleY = 0.61 + 0.39 * depth;
             tile.Button.Opacity = fade * fade * (3 - 2 * fade) * (0.67 + 0.33 * depth);
             tile.Button.IsHitTestVisible = fade > 0.28;
-            tile.Button.Tag = index == centered ? "Center" : null;
         }
     }
 

@@ -1,60 +1,66 @@
 <Window x:Class="DesktopCarousel.DesktopWidget"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="桌面轮播" Language="zh-CN" Width="816" Height="148"
+        Title="桌面轮播" Language="zh-CN" Width="816" Height="176"
         WindowStyle="None" ResizeMode="NoResize" AllowsTransparency="True"
         ShowInTaskbar="False" ShowActivated="False" Background="Transparent"
         FontFamily="Segoe UI, Microsoft YaHei UI" UseLayoutRounding="True">
     <Window.Resources>
+        <SolidColorBrush x:Key="CaptionForeground">#F6F8FC</SolidColorBrush>
+        <SolidColorBrush x:Key="CaptionBackground">#D11A212B</SolidColorBrush>
+        <Color x:Key="CaptionShadowColor">#141820</Color>
         <Style x:Key="ShortcutTile" TargetType="Button">
             <Setter Property="Width" Value="112" />
-            <Setter Property="Height" Value="91" />
+            <Setter Property="Height" Value="98" />
             <Setter Property="Cursor" Value="Hand" />
             <Setter Property="FocusVisualStyle" Value="{x:Null}" />
             <Setter Property="AutomationProperties.Name" Value="{Binding Name}" />
-            <Setter Property="ToolTip" Value="{Binding Name}" />
-            <Setter Property="ToolTipService.InitialShowDelay" Value="950" />
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
                         <Grid>
-                            <Border x:Name="Face" Width="63" Height="63" Margin="0,2,0,0"
-                                    HorizontalAlignment="Center" VerticalAlignment="Top" CornerRadius="19"
-                                    Background="#55202A38" BorderBrush="#40FFFFFF" BorderThickness="1">
-                                <Grid>
-                                    <Image Source="{Binding Icon}" Width="47" Height="47"
+                            <Image Source="{DynamicResource IconShadow}" Width="72" Height="64" Margin="0,33,0,0"
+                                   HorizontalAlignment="Center" VerticalAlignment="Top" IsHitTestVisible="False" />
+                            <Border x:Name="Face" Width="64" Height="64" Margin="0,30,0,0"
+                                    HorizontalAlignment="Center" VerticalAlignment="Top" CornerRadius="22"
+                                    Background="#03000000">
+                                <Grid RenderTransformOrigin="0.5,0.5" IsHitTestVisible="False">
+                                    <Grid.RenderTransform>
+                                        <TransformGroup>
+                                            <ScaleTransform x:Name="HoverScale" />
+                                            <TranslateTransform x:Name="HoverLift" />
+                                        </TransformGroup>
+                                    </Grid.RenderTransform>
+                                    <Image Source="{Binding Icon}" Width="50" Height="50"
                                            RenderOptions.BitmapScalingMode="Linear" />
                                     <TextBlock x:Name="Fallback" Text="&#xE8A7;" FontFamily="Segoe MDL2 Assets"
-                                               FontSize="26" Foreground="White" Visibility="Collapsed"
+                                               FontSize="26" Foreground="{DynamicResource CaptionForeground}" Visibility="Collapsed"
                                                HorizontalAlignment="Center" VerticalAlignment="Center" />
                                 </Grid>
                             </Border>
-                            <Border x:Name="NamePlate" VerticalAlignment="Top" HorizontalAlignment="Center"
-                                    Margin="0,70,0,0" Padding="8,2,8,3" CornerRadius="7"
-                                    Background="#B9131C29" Visibility="Hidden" MaxWidth="112">
-                                <TextBlock Text="{Binding Name}" Foreground="#FFFDFD" FontSize="11.5"
-                                           LineHeight="15" TextAlignment="Center" TextTrimming="CharacterEllipsis" />
+                            <Border x:Name="Caption" VerticalAlignment="Top" HorizontalAlignment="Center"
+                                    Margin="0,4,0,0" Padding="7,2,7,2" CornerRadius="6" IsHitTestVisible="False"
+                                    Background="{DynamicResource CaptionBackground}" Visibility="Hidden" MaxWidth="112">
+                                <TextBlock Text="{Binding Name}" Foreground="{DynamicResource CaptionForeground}" FontSize="12"
+                                           FontWeight="Medium" TextAlignment="Center" TextTrimming="CharacterEllipsis">
+                                    <TextBlock.Effect>
+                                        <DropShadowEffect Color="{DynamicResource CaptionShadowColor}" BlurRadius="5"
+                                                          ShadowDepth="1" Direction="270" Opacity="0.66" />
+                                    </TextBlock.Effect>
+                                </TextBlock>
                             </Border>
                         </Grid>
                         <ControlTemplate.Triggers>
                             <DataTrigger Binding="{Binding Icon}" Value="{x:Null}">
                                 <Setter TargetName="Fallback" Property="Visibility" Value="Visible" />
                             </DataTrigger>
-                            <Trigger Property="Tag" Value="Center">
-                                <Setter TargetName="Face" Property="Background" Value="#76212B39" />
-                                <Setter TargetName="NamePlate" Property="Visibility" Value="Visible" />
-                            </Trigger>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Face" Property="Background" Value="#B6243245" />
-                                <Setter TargetName="Face" Property="BorderBrush" Value="#B6DFEEFF" />
-                                <Setter TargetName="NamePlate" Property="Visibility" Value="Visible" />
-                            </Trigger>
                             <Trigger Property="IsKeyboardFocused" Value="True">
-                                <Setter TargetName="Face" Property="BorderBrush" Value="White" />
-                                <Setter TargetName="NamePlate" Property="Visibility" Value="Visible" />
+                                <Setter TargetName="Face" Property="BorderBrush" Value="{DynamicResource CaptionForeground}" />
+                                <Setter TargetName="Face" Property="BorderThickness" Value="1" />
+                                <Setter TargetName="Caption" Property="Visibility" Value="Visible" />
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="Face" Property="Background" Value="#DC32445E" />
+                                <Setter TargetName="Face" Property="Opacity" Value="0.78" />
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
