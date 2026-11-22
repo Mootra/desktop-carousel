@@ -51,6 +51,41 @@ internal static class DesktopShell
         SetWindowLong(window, ExtendedStyle, (GetWindowLong(window, ExtendedStyle) | toolWindow | noActivate) & ~appWindow);
     }
 
+    /// <summary>唤出时临时置顶并允许激活，收起时回到桌面层并恢复不抢焦点。</summary>
+    public static void SetSummoned(nint window, bool summoned)
+    {
+        const int noActivate = 0x08000000;
+        int style = GetWindowLong(window, ExtendedStyle);
+        int updated = summoned ? style & ~noActivate : style | noActivate;
+        if (updated != style)
+        {
+            SetWindowLong(window, ExtendedStyle, updated);
+        }
+
+        // HWND_TOPMOST / HWND_NOTOPMOST；之后由 PlaceOnDesktop 把窗口放回图标层之上。
+        SetWindowPos(window, summoned ? -1 : -2, 0, 0, 0, 0, PositionOnlyZOrder);
+    }
+
+    public static void Activate(nint window)
+    {
+        nint foreground = GetForegroundWindow();
+        uint foregroundThread = foreground == 0 ? 0 : GetWindowThreadProcessId(foreground, out _);
+        uint currentThread = GetCurrentThreadId();
+        bool attached = foregroundThread != 0 && foregroundThread != currentThread
+            && AttachThreadInput(currentThread, foregroundThread, true);
+        try
+        {
+            SetForegroundWindow(window);
+        }
+        finally
+        {
+            if (attached)
+            {
+                AttachThreadInput(currentThread, foregroundThread, false);
+            }
+        }
+    }
+
     public static void PlaceOnDesktop(nint window, nint desktopHost)
     {
         if (desktopHost == 0)
@@ -153,4 +188,15 @@ internal static class DesktopShell
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool GetWindowRect(nint window, out Rect bounds);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetForegroundWindow(nint window);
+
+    [DllImport("kernel32.dll")]
+    private static extern uint GetCurrentThreadId();
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool AttachThreadInput(uint attach, uint attachTo, [MarshalAs(UnmanagedType.Bool)] bool join);
 }

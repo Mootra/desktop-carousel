@@ -32,6 +32,7 @@ public partial class DesktopWidget : Window
     private bool _closed;
     private bool _covered;
     private bool _paused;
+    private bool _summoned;
     private bool _hideDesktopIcons = true;
     private bool _acquiringIconLease;
     private bool _readingWallpaper;
@@ -59,9 +60,72 @@ public partial class DesktopWidget : Window
         MouseEnter += (_, _) => UpdateRenderLoop();
         MouseLeave += (_, _) => UpdateRenderLoop();
         PreviewMouseWheel += ScrollArc;
+        PreviewKeyDown += HandleKey;
+        Deactivated += (_, _) => DismissSummon();
     }
 
     internal IReadOnlyList<DesktopShortcut> Shortcuts => _shortcuts;
+
+    internal nint Handle => _handle;
+
+    internal bool Summoned => _summoned;
+
+    internal event EventHandler? SummonChanged;
+
+    /// <summary>唤出到所有窗口之上；再次调用回到桌面层。</summary>
+    internal void ToggleSummon()
+    {
+        if (_closed)
+        {
+            return;
+        }
+        _summoned = !_summoned;
+        ApplySummonState();
+    }
+
+    internal void DismissSummon()
+    {
+        if (!_summoned)
+        {
+            return;
+        }
+        _summoned = false;
+        ApplySummonState();
+    }
+
+    private void ApplySummonState()
+    {
+        if (_handle != 0)
+        {
+            DesktopShell.SetSummoned(_handle, _summoned);
+            if (_summoned)
+            {
+                if (!IsVisible)
+                {
+                    Show();
+                }
+                _covered = false;
+                DesktopShell.Activate(_handle);
+            }
+            else
+            {
+                Keyboard.ClearFocus();
+            }
+        }
+
+        UpdateRenderLoop();
+        RefreshDesktopLayer(this, EventArgs.Empty);
+        SummonChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void HandleKey(object sender, KeyEventArgs args)
+    {
+        if (args.Key == Key.Escape && _summoned)
+        {
+            DismissSummon();
+            args.Handled = true;
+        }
+    }
 
     internal bool Paused
     {
@@ -112,8 +176,15 @@ public partial class DesktopWidget : Window
         }
 
         var surface = DesktopShell.FindSurface();
-        DesktopShell.PlaceOnDesktop(_handle, surface.Host);
-        _covered = DesktopShell.ForegroundCoversWidget(_handle, surface.Host);
+        if (_summoned)
+        {
+            _covered = false;
+        }
+        else
+        {
+            DesktopShell.PlaceOnDesktop(_handle, surface.Host);
+            _covered = DesktopShell.ForegroundCoversWidget(_handle, surface.Host);
+        }
         UpdateRenderLoop();
         RefreshWallpaperStyle();
 

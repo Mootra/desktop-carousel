@@ -10,7 +10,7 @@
     <ApplicationIcon>DesktopCarousel.ico</ApplicationIcon>
     <StartupObject>DesktopCarousel.Program</StartupObject>
     <Product>桌面轮播</Product>
-    <Version>0.2.0</Version>
+    <Version>0.2.2</Version>
   </PropertyGroup>
   <ItemGroup>
     <Using Remove="System.Windows.Forms" />
