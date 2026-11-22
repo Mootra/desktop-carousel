@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using System.Security;
 using System.Windows;
 using Forms = System.Windows.Forms;
@@ -10,8 +10,8 @@ public partial class App : Application
     private Mutex? _instance;
     private Forms.NotifyIcon? _tray;
     private Forms.ContextMenuStrip? _menu;
-    private Forms.ToolStripMenuItem? _summonItem;
-    private Forms.ToolStripMenuItem? _startupItem;
+    private ThemedMenuItem? _summonItem;
+    private ThemedMenuItem? _startupItem;
     private GlobalHotkey? _hotkey;
     private System.Drawing.Icon? _icon;
 
@@ -42,6 +42,7 @@ public partial class App : Application
         widget.SummonChanged += (_, _) => UpdateSummonState(widget);
         widget.Show();
 
+
         // 热键要等窗口句柄创建后再注册。
         _hotkey = GlobalHotkey.TryRegister(widget.Handle, widget.ToggleSummon);
         UpdateHotkeyState(widget);
@@ -49,38 +50,64 @@ public partial class App : Application
 
     private Forms.ContextMenuStrip CreateMenu(DesktopWidget widget)
     {
-        var menu = new Forms.ContextMenuStrip();
-        _summonItem = new Forms.ToolStripMenuItem("唤出轮播");
+        var menu = MenuTheme.CreateMenu();
+        _summonItem = new ThemedMenuItem("唤出轮播") { Hint = "Ctrl+Alt+D" };
         _summonItem.Click += (_, _) => widget.ToggleSummon();
-        var pause = new Forms.ToolStripMenuItem("暂停轮播");
+        var pause = new ThemedMenuItem("暂停轮播");
         pause.Click += (_, _) => widget.Paused = !widget.Paused;
-        var hide = new Forms.ToolStripMenuItem("隐藏原桌面图标");
+        var launch = new ThemedMenuItem("快捷方式");
+        launch.PrepareSubmenu();
+        var hide = new ThemedMenuItem("隐藏原桌面图标");
         hide.Click += (_, _) => widget.HideDesktopIcons = !widget.HideDesktopIcons;
-        _startupItem = new Forms.ToolStripMenuItem("开机自启动") { ToolTipText = "登录 Windows 后自动启动桌面轮播" };
+        _startupItem = new ThemedMenuItem("开机自启动") { ToolTipText = "登录 Windows 后自动启动桌面轮播" };
         _startupItem.Click += (_, _) => ToggleStartup();
-        var launch = new Forms.ToolStripMenuItem("快捷方式");
-        menu.Items.AddRange([_summonItem, pause, hide, _startupItem, new Forms.ToolStripSeparator()]);
-        menu.Items.Add("打开桌面文件夹", null, (_, _) => widget.OpenDesktopFolder());
-        menu.Items.Add("退出", null, (_, _) => widget.Close());
+        var folder = new ThemedMenuItem("打开桌面文件夹");
+        folder.Click += (_, _) => widget.OpenDesktopFolder();
+        var exit = new ThemedMenuItem("退出");
+        exit.Click += (_, _) => widget.Close();
 
-        menu.Opening += (_, _) =>
-        {
-            pause.Checked = widget.Paused;
-            hide.Checked = widget.HideDesktopIcons;
-            _summonItem.Checked = widget.Summoned;
-            _startupItem.Checked = StartupRegistration.IsEnabled();
-            foreach (var item in launch.DropDownItems.Cast<Forms.ToolStripItem>().ToArray())
-            {
-                item.Dispose();
-            }
-            launch.DropDownItems.Clear();
-            foreach (var shortcut in widget.Shortcuts)
-            {
-                launch.DropDownItems.Add(shortcut.Name.Replace("&", "&&"), null, (_, _) => widget.OpenShortcut(shortcut));
-            }
-            launch.Enabled = launch.DropDownItems.Count > 0;
-        };
+        menu.Items.AddRange(
+        [
+            _summonItem,
+            pause,
+            launch,
+            new Forms.ToolStripSeparator { Margin = new Forms.Padding(0, 3, 0, 3) },
+            hide,
+            _startupItem,
+            new Forms.ToolStripSeparator { Margin = new Forms.Padding(0, 3, 0, 3) },
+            folder,
+            exit,
+        ]);
+
+        menu.Opening += (_, _) => SyncMenu(widget, pause, hide, launch);
         return menu;
+    }
+
+    private void SyncMenu(DesktopWidget widget, ThemedMenuItem pause, ThemedMenuItem hide, ThemedMenuItem launch)
+    {
+        if (_summonItem is not null)
+        {
+            _summonItem.Text = widget.Summoned ? "收起轮播" : "唤出轮播";
+        }
+        pause.Text = widget.Paused ? "继续轮播" : "暂停轮播";
+        hide.Checked = widget.HideDesktopIcons;
+        if (_startupItem is not null)
+        {
+            _startupItem.Checked = StartupRegistration.IsEnabled();
+        }
+
+        foreach (var item in launch.DropDownItems.Cast<Forms.ToolStripItem>().ToArray())
+        {
+            item.Dispose();
+        }
+        launch.DropDownItems.Clear();
+        foreach (var shortcut in widget.Shortcuts)
+        {
+            var item = new ThemedMenuItem(shortcut.Name);
+            item.Click += (_, _) => widget.OpenShortcut(shortcut);
+            launch.DropDownItems.Add(item);
+        }
+        launch.Enabled = launch.DropDownItems.Count > 0;
     }
 
     private void ToggleStartup()
@@ -113,11 +140,12 @@ public partial class App : Application
 
         if (_hotkey is not null)
         {
-            _summonItem.ShortcutKeyDisplayString = _hotkey.Text;
+            _summonItem.Hint = _hotkey.Text;
             _summonItem.ToolTipText = $"按 {_hotkey.Text} 在任何窗口之上唤出或收起轮播";
         }
         else
         {
+            _summonItem.Hint = null;
             _summonItem.ToolTipText = "全局热键被其他程序占用，可从本菜单唤出轮播";
             _tray?.ShowBalloonTip(6000, "桌面轮播",
                 "全局热键注册失败，Ctrl+Alt+D、Win+Alt+D 等组合已被占用。可从托盘菜单唤出轮播。",
@@ -130,7 +158,7 @@ public partial class App : Application
     {
         if (_summonItem is not null)
         {
-            _summonItem.Checked = widget.Summoned;
+            _summonItem.Text = widget.Summoned ? "收起轮播" : "唤出轮播";
         }
     }
 
